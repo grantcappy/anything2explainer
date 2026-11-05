@@ -231,8 +231,8 @@ duck = 1 - 0.35 * np.clip(lp(np.abs(sfx), 8) * 6, 0, 1)
 if TRACK is not None:
     # song carries the energy; SFX sit on top a little quieter so the music stays in front
     tr = TRACK / (np.abs(TRACK).max() + 1e-9)
-    mix_l = tr[:, 0] * duck * 0.8 + sfx * 0.7
-    mix_r = tr[:, 1] * duck * 0.8 + sfx * 0.7
+    mix_l = tr[:, 0] * duck * 0.6 + sfx * 1.0
+    mix_r = tr[:, 1] * duck * 0.6 + sfx * 1.0
 else:
     mix_l = music * duck * 0.9 + sfx
     mix_r = music * duck * 0.9 + sfx
