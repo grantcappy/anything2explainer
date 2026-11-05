@@ -9,6 +9,7 @@ import math, os, random, subprocess, sys
 from multiprocessing import Pool
 import cairo
 from timemap import FORMAT, duration, story_time
+from camera import SHOTS
 
 VERT = FORMAT == "vertical"
 FPS = 30
@@ -31,6 +32,11 @@ else:
     L_SURF, L_BIND, L_BASE, L_SUB, L_BOT = 470, 530, 610, 770, 960
     CX = 720
 DW = X1 - X0
+# camera viewport (screen) and the screen point the camera target lands on
+if VERT:
+    VP_TOP, VP_BOT, AX, AY = 590, 1560, W / 2, 1075
+else:
+    VP_TOP, VP_BOT, AX, AY = 240, 1080, 960, 660
 
 CONTACT_PHONE = "317-809-9420"
 CONTACT_WEB = "stubbsasphalt.com"
@@ -430,7 +436,7 @@ LAYERS = [("SURFACE ASPHALT", L_SURF, L_BIND, "b_surf", "surf"),
           ("SUB-BASE (SOIL)", L_SUB, L_BOT, "b_sub", "sub")]
 
 def draw_labels(ctx, st):
-    la = st["labels"] * st["diag"]
+    la = st["labels"] * st["diag"] * clamp((1.3 - st.get("zoom", 1)) / 0.3)
     if la <= 0:
         return
     for name, y0, y1, bk, key in LAYERS:
@@ -495,10 +501,14 @@ def draw_sky(ctx, st, t):
                 ctx.move_to(CX, L_SURF - 1)
                 ctx.line_to(CX + side * 260 * st["film"], L_SURF - 1)
             ctx.set_line_width(5); ctx.stroke()
+    draw_wheel(ctx, st, a)
+
+def draw_thermo(ctx, st):
+    a = st["diag"]
     if st["thermo"] > 0:
         ta = st["thermo"] * a
         if VERT:
-            tx, ty0, ty1, side = X0 + 50, SKY + 40, SKY + 190, 1
+            tx, ty0, ty1, side = X1 - 60, SKY + 30, SKY + 180, -1
         else:
             tx, ty0, ty1, side = 1255, 270, 430, -1
         ctx.set_source_rgba(1, 1, 1, 0.9 * ta); ctx.set_line_width(3)
@@ -517,6 +527,8 @@ def draw_sky(ctx, st, t):
         draw_text(ctx, "32°F", tx + side * 30, fy + 8, 24, "bold", (1, 1, 1, 0.8 * ta), align=al)
         lab = "FREEZE" if temp < 0.45 else "THAW"
         draw_text(ctx, lab, tx + side * 30, ty0 + 24, 32, "black", (*col, ta), align=al, sp=1)
+
+def draw_wheel(ctx, st, a):
     if st["wheel"] is not None:
         wx = st["wheel"]
         wr = 58
@@ -534,10 +546,16 @@ def draw_sky(ctx, st, t):
         ctx.stroke()
         ctx.restore()
 
-def draw_callout(ctx, text, px, py, tx, ty, a, color=(1, 1, 1)):
+def draw_callout(ctx, text, px, py, tx, ty, a, color=(1, 1, 1), cam=None):
     if a <= 0:
         return
     size = 34 if VERT else 30
+    if cam:
+        px, py = cam(px, py)
+        tx, ty = cam(tx, ty)
+        tw0 = text_width(ctx, text, size, "black", 1.2)
+        tx = clamp(tx, tw0 / 2 + 40, W - tw0 / 2 - 40)
+        ty = clamp(ty, VP_TOP + 80, VP_BOT - 40)
     ctx.set_source_rgba(*color, a); ctx.set_line_width(2.5)
     ctx.arc(px, py, 6, 0, 6.3); ctx.fill()
     ctx.move_to(px, py); ctx.line_to(tx, ty); ctx.stroke()
@@ -548,17 +566,17 @@ def draw_callout(ctx, text, px, py, tx, ty, a, color=(1, 1, 1)):
     ctx.set_source_rgba(*color, a); rrect(ctx, bx, ty - bh + 10, tw + 36, bh, 10); ctx.stroke()
     draw_text(ctx, text, tx, ty - bh * 0.5 + 10 + size * 0.36, size, "black", (*color, a), align="center", sp=1.2)
 
-def draw_scene_callouts(ctx, t, st):
+def draw_scene_callouts(ctx, t, st, cam):
     d = st["diag"]
     ty = SKY + (150 if VERT else 130)
     draw_callout(ctx, "ICE EXPANDS ~9%", CX, L_SURF + 40, CX - (230 if VERT else 300), ty,
-                 (window(t, 39.4, 42.3, 0.4, 0.4) + window(t, 45.0, 47.9, 0.4, 0.4)) * d, ICE)
+                 (window(t, 39.4, 42.3, 0.4, 0.4) + window(t, 45.0, 47.9, 0.4, 0.4)) * d, ICE, cam)
     draw_callout(ctx, "VOIDS", CX + 120, L_BASE + 60, CX + 260, ty,
-                 window(t, 57.5, 61.0, 0.5, 0.4) * d)
+                 window(t, 57.5, 61.0, 0.5, 0.4) * d, cam=cam)
     draw_callout(ctx, "SOFT SOIL", CX + 220, L_SUB + 70, CX + 240, ty,
-                 window(t, 62.0, 65.8, 0.5, 0.4) * d)
+                 window(t, 62.0, 65.8, 0.5, 0.4) * d, cam=cam)
     draw_callout(ctx, "POTHOLE", CX - 60, L_SURF + 60, CX - (250 if VERT else 330), ty,
-                 window(t, 72.8, 75.5, 0.4, 0.4) * d, WARN)
+                 window(t, 72.8, 75.5, 0.4, 0.4) * d, WARN, cam)
 
 def draw_upward(ctx, t, st):
     a = window(t, 66.0, 75.5, 0.6, 0.6) * st["diag"]
@@ -758,6 +776,41 @@ def contact_block(ctx, cx, y, a2, a3, big):
     draw_text(ctx, "in", x + badge / 2, yy - badge * 0.2, size * 0.95, "black", (0, 0, 0, a3), "center")
     draw_text(ctx, label, x + badge + 16, yy, size, "bold", (*GREY, a3))
 
+# ---------------------------------------------------------------- camera
+def target(key):
+    return {
+        "home": (AX, AY),
+        "crack": (CX, L_SURF + 10),
+        "crack_mid": (CX, (L_SURF + L_BASE) / 2),
+        "water_in": (CX, L_SURF + 15),
+        "water_down": (CX, L_BASE - 10),
+        "base": (CX, (L_BASE + L_SUB) / 2 + 10),
+        "sub": (CX, L_SUB + 70),
+        "heave": (CX, L_SURF + 30),
+        "pothole": (CX, L_SURF + 40),
+        "seal": (CX, L_SURF + 10),
+    }[key]
+
+def camera(t):
+    z, fx, fy = 1.0, AX, AY
+    for t0, t1, zz, key in SHOTS:
+        if t < t0:
+            break
+        tx, ty = target(key)
+        k = 1.0 if t1 <= t0 else ease(prog(t, t0, t1))
+        z = math.exp(math.log(z) + (math.log(zz) - math.log(z)) * k)
+        fx += (tx - fx) * k
+        fy += (ty - fy) * k
+    # once zoomed in, keep the frame filled with diagram (no empty edges)
+    if z > 1.0:
+        w = clamp((z - 1.0) / 0.3)
+        lo_x, hi_x = X0 + AX / z, X1 - (W - AX) / z
+        if lo_x < hi_x:
+            fx += (clamp(fx, lo_x, hi_x) - fx) * w
+        hi_y = L_BOT - (VP_BOT - AY) / z
+        fy += (min(fy, hi_y) - fy) * w
+    return z, fx, fy
+
 # ---------------------------------------------------------------- state over story time
 def state(t):
     st = dict(diag=0, b_sub=0, b_base=0, b_bind=0, b_surf=0, labels=0, focus=None,
@@ -864,12 +917,30 @@ def render(i):
     st = state(t)
     draw_intro(ctx, t)
     if st["diag"] > 0:
+        z, fx, fy = camera(t)
+        st["zoom"] = z
+        cam = lambda x, y: (AX + z * (x - fx), AY + z * (y - fy))
+        ctx.save()
+        ctx.rectangle(0, VP_TOP, W, VP_BOT - VP_TOP); ctx.clip()
+        ctx.push_group()
+        ctx.save()
+        ctx.translate(AX, AY); ctx.scale(z, z); ctx.translate(-fx, -fy)
         draw_sky(ctx, st, t)
         draw_section(ctx, st, t)
         draw_labels(ctx, st)
         draw_upward(ctx, t, st)
-        draw_scene_callouts(ctx, t, st)
         draw_nozzle(ctx, t)
+        ctx.restore()
+        ctx.pop_group_to_source()
+        g = cairo.LinearGradient(0, VP_TOP, 0, VP_BOT)
+        fade = 50 / (VP_BOT - VP_TOP)
+        g.add_color_stop_rgba(0, 0, 0, 0, 0); g.add_color_stop_rgba(fade, 0, 0, 0, 1)
+        g.add_color_stop_rgba(1 - fade, 0, 0, 0, 1)
+        g.add_color_stop_rgba(1, 0, 0, 0, 0 if VERT else 1)
+        ctx.mask(g)
+        ctx.restore()
+        draw_thermo(ctx, st)
+        draw_scene_callouts(ctx, t, st, cam)
     draw_caption(ctx, t)
     draw_checklist(ctx, t)
     draw_compare(ctx, t)
@@ -892,7 +963,8 @@ def main():
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", f"{W}x{H}",
            "-r", str(FPS), "-i", "-"]
     if os.path.exists(audio):
-        cmd += ["-i", audio, "-c:a", "aac", "-b:a", "192k", "-shortest"]
+        cmd += ["-i", audio, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
+                "-c:a", "aac", "-b:a", "192k", "-shortest"]
     cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
             "-movflags", "+faststart", out]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
