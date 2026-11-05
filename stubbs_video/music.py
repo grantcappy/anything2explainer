@@ -132,6 +132,27 @@ music = (lp(gtr, 6000) * 0.55 * gtr_on + lp(bass, 900) * bass_on + kick * drums_
          clap * drums_on + hats * hats_on + lp(pad, 2500) * 1.0)
 music *= np.clip(t / 0.8, 0, 1)
 
+# A licensed track supplied by the user (assets/track.mp3 / .wav / .m4a) replaces the synthesized
+# music; TRACK_START (seconds into the song) picks where the video's music begins.
+def load_track():
+    import glob, subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    files = sorted(glob.glob(os.path.join(here, "assets", "track.*")))
+    if not files:
+        return None
+    start = float(os.environ.get("TRACK_START", "0"))
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-i", files[0], "-t", str(DUR),
+                          "-f", "f32le", "-ac", "2", "-ar", str(SR), "-"],
+                         capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2)
+    out = np.zeros((N, 2))
+    out[: min(N, len(x))] = x[:N]
+    return out
+
+TRACK = load_track()
+if TRACK is not None:
+    print("using licensed track from assets/")
+
 # ------------------------------------------------------------------ sound design
 sfx = np.zeros(N)
 
@@ -207,11 +228,17 @@ sfx += rain * rain_env
 # ------------------------------------------------------------------ mix
 # duck music slightly under impacts
 duck = 1 - 0.35 * np.clip(lp(np.abs(sfx), 8) * 6, 0, 1)
-mix_l = music * duck * 0.9 + sfx
-mix_r = music * duck * 0.9 + sfx
-# stereo width: guitar left-ish, hats right-ish
-mix_l += lp(gtr, 6000) * 0.12 * gtr_on
-mix_r += hats * hats_on * 0.4
+if TRACK is not None:
+    # song carries the energy; SFX sit on top a little quieter so the music stays in front
+    tr = TRACK / (np.abs(TRACK).max() + 1e-9)
+    mix_l = tr[:, 0] * duck * 0.8 + sfx * 0.7
+    mix_r = tr[:, 1] * duck * 0.8 + sfx * 0.7
+else:
+    mix_l = music * duck * 0.9 + sfx
+    mix_r = music * duck * 0.9 + sfx
+    # stereo width: guitar left-ish, hats right-ish
+    mix_l += lp(gtr, 6000) * 0.12 * gtr_on
+    mix_r += hats * hats_on * 0.4
 fade = np.clip((DUR - t) / 2.5, 0, 1)
 stereo = np.stack([mix_l * fade, mix_r * fade], 1)
 stereo /= np.abs(stereo).max() / 0.89
