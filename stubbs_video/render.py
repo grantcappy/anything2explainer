@@ -501,7 +501,7 @@ def draw_sky(ctx, st, t):
                 ctx.move_to(CX, L_SURF - 1)
                 ctx.line_to(CX + side * 260 * st["film"], L_SURF - 1)
             ctx.set_line_width(5); ctx.stroke()
-    draw_wheel(ctx, st, a)
+    draw_truck(ctx, st, a)
 
 def draw_thermo(ctx, st):
     a = st["diag"]
@@ -528,23 +528,146 @@ def draw_thermo(ctx, st):
         lab = "FREEZE" if temp < 0.45 else "THAW"
         draw_text(ctx, lab, tx + side * 30, ty0 + 24, 32, "black", (*col, ta), align=al, sp=1)
 
-def draw_wheel(ctx, st, a):
-    if st["wheel"] is not None:
-        wx = st["wheel"]
-        wr = 58
-        wy = L_SURF - wr + layer_offset(wx, st, 1) - 2
-        wa = a * st["wheel_a"]
-        ctx.save(); ctx.translate(wx, wy)
-        ctx.set_source_rgba(0.07, 0.07, 0.08, wa); ctx.arc(0, 0, wr, 0, 6.3); ctx.fill()
-        ctx.set_source_rgba(0.75, 0.75, 0.78, wa); ctx.set_line_width(4); ctx.arc(0, 0, wr - 3, 0, 6.3); ctx.stroke()
-        ctx.set_source(chrome(ctx, -26, 26, wa)); ctx.arc(0, 0, 26, 0, 6.3); ctx.fill()
-        rot = wx / wr
-        ctx.set_source_rgba(0.2, 0.2, 0.22, wa); ctx.set_line_width(3)
-        for i in range(5):
-            ang = rot + i * 2 * math.pi / 5
-            ctx.move_to(8 * math.cos(ang), 8 * math.sin(ang)); ctx.line_to(24 * math.cos(ang), 24 * math.sin(ang))
-        ctx.stroke()
+# ---------------------------------------------------------------- truck
+# Angular stainless electric pickup, side view facing right. Real-world proportions
+# (5.7 m long, 3.81 m wheelbase, 35-inch tyres); units in metres, y up from the ground.
+PX = 112                      # pixels per metre
+T_R = 0.445                   # tyre radius
+T_XR, T_XF = 1.05, 4.86       # rear / front axle
+T_MID = 2.85                  # body reference point (between the axles)
+
+def _arch(xc):
+    return [(xc + 0.60, 0.50), (xc + 0.50, 0.98), (xc + 0.20, 1.13), (xc - 0.20, 1.13),
+            (xc - 0.50, 0.98), (xc - 0.60, 0.50)]
+
+T_BODY = ([(0.0, 1.22), (3.05, 1.80), (5.60, 1.06), (5.70, 0.98), (5.64, 0.60)] + _arch(T_XF) +
+          _arch(T_XR) + [(0.30, 0.52), (0.0, 0.60)])
+T_GLASS = [(2.15, 1.30), (2.15, 1.57), (3.05, 1.735), (4.30, 1.385), (4.16, 1.30)]
+
+def _brush_texture():
+    rnd = random.Random(31)
+    w, h = int(5.8 * PX), int(1.9 * PX)
+    s = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    c = cairo.Context(s)
+    for _ in range(int(h * 2.2)):
+        y = rnd.uniform(0, h)
+        x0 = rnd.uniform(-w * 0.2, w)
+        v = rnd.random()
+        c.set_source_rgba(1, 1, 1, 0.07) if v > 0.5 else c.set_source_rgba(0, 0, 0, 0.06)
+        c.set_line_width(rnd.uniform(0.5, 1.4))
+        c.move_to(x0, y); c.line_to(x0 + rnd.uniform(60, 300), y); c.stroke()
+    return s
+
+BRUSH = None
+
+def _tpath(ctx, pts):
+    for i, (x, y) in enumerate(pts):
+        (ctx.move_to if i == 0 else ctx.line_to)(x * PX, -(y - T_R) * PX)
+    ctx.close_path()
+
+def draw_tyre(ctx, x, y, ang, a):
+    r = T_R * PX
+    ctx.save(); ctx.translate(x, y)
+    ctx.set_source_rgba(0.22, 0.22, 0.23, a); ctx.arc(0, 0, r, 0, 6.3); ctx.fill()
+    # tread grooves cut into the outer edge, turning with the wheel
+    ctx.set_source_rgba(0.09, 0.09, 0.10, a)
+    for i in range(28):
+        th = ang + i * 2 * math.pi / 28
+        ctx.save(); ctx.rotate(th)
+        ctx.rectangle(r - 6, -1.6, 6.5, 3.2); ctx.fill()
         ctx.restore()
+    # sidewall with a soft highlight
+    ctx.set_source_rgba(0.15, 0.15, 0.16, a); ctx.arc(0, 0, r - 6, 0, 6.3); ctx.fill()
+    ctx.set_source_rgba(1, 1, 1, 0.10 * a); ctx.set_line_width(2); ctx.arc(0, 0, r - 13, 3.6, 5.6); ctx.stroke()
+    # aero wheel cover: dark disc with six lighter facets + chrome lip
+    rr = 0.30 * PX
+    ctx.set_source(chrome(ctx, -rr, rr, a)); ctx.arc(0, 0, rr + 2, 0, 6.3); ctx.fill()
+    ctx.set_source_rgba(0.20, 0.20, 0.22, a); ctx.arc(0, 0, rr - 1, 0, 6.3); ctx.fill()
+    for i in range(6):
+        th = ang + i * math.pi / 3
+        ctx.set_source_rgba(0.34, 0.34, 0.37, a)
+        ctx.move_to(0, 0)
+        ctx.arc(0, 0, rr - 4, th, th + 0.42)
+        ctx.close_path(); ctx.fill()
+    ctx.set_source_rgba(0.55, 0.55, 0.58, a); ctx.arc(0, 0, 6, 0, 6.3); ctx.fill()
+    ctx.restore()
+
+def draw_truck(ctx, st, a):
+    if st["truck"] is None:
+        return
+    global BRUSH
+    if BRUSH is None:
+        BRUSH = _brush_texture()
+    cx = st["truck"]
+    r = T_R * PX
+    xr = cx + (T_XR - T_MID) * PX
+    xf = cx + (T_XF - T_MID) * PX
+    sq = 4   # tyre contact patch: sits slightly into the road surface, like a loaded tyre
+    yr = L_SURF + layer_offset(xr, st, 1) - r + sq
+    yf = L_SURF + layer_offset(xf, st, 1) - r + sq
+    pitch = math.atan2(yf - yr, xf - xr)
+    ctx.save()
+    ctx.rectangle(X0, SKY - 60, DW, L_SURF - SKY + 80); ctx.clip()
+    ctx.push_group()
+    # contact shadow
+    for k in range(3):
+        ctx.save(); ctx.translate(cx + 0.1 * PX, L_SURF + layer_offset(cx, st, 1) - 1)
+        ctx.scale(3.0 * PX - k * 18, 7 - k * 2)
+        ctx.set_source_rgba(0, 0, 0, 0.18 * a); ctx.arc(0, 0, 1, 0, 6.3); ctx.fill(); ctx.restore()
+    # body, in truck coordinates anchored on the rear axle
+    ctx.save()
+    ctx.translate(xr, yr); ctx.rotate(pitch); ctx.translate(-T_XR * PX, 0)
+    _tpath(ctx, T_BODY)
+    ctx.save(); ctx.clip_preserve()
+    top, bot = -(1.80 - T_R) * PX, -(0.50 - T_R) * PX
+    g = cairo.LinearGradient(0, top, 0, bot)
+    g.add_color_stop_rgba(0.00, 0.93, 0.93, 0.94, a)
+    g.add_color_stop_rgba(0.30, 0.80, 0.80, 0.82, a)
+    g.add_color_stop_rgba(0.52, 0.62, 0.62, 0.64, a)
+    g.add_color_stop_rgba(0.62, 0.86, 0.86, 0.88, a)
+    g.add_color_stop_rgba(1.00, 0.52, 0.52, 0.55, a)
+    ctx.set_source(g); ctx.fill()
+    ctx.set_source_surface(BRUSH, 0, top); ctx.paint_with_alpha(a)
+    # dark lower cladding
+    ctx.set_source_rgba(0.10, 0.10, 0.11, a)
+    ctx.rectangle(-10, -(0.70 - T_R) * PX, 6 * PX, 1 * PX); ctx.fill()
+    ctx.restore()
+    ctx.set_source_rgba(0.25, 0.25, 0.27, a); ctx.set_line_width(1.6); ctx.stroke()
+    # angular arch flares
+    ctx.set_line_join(cairo.LINE_JOIN_MITER)
+    for xc in (T_XR, T_XF):
+        pts = _arch(xc)
+        for i, (x, y) in enumerate(pts):
+            (ctx.move_to if i == 0 else ctx.line_to)(x * PX, -(y - T_R) * PX)
+        ctx.set_source_rgba(0.09, 0.09, 0.10, a); ctx.set_line_width(7); ctx.stroke()
+    # glass
+    _tpath(ctx, T_GLASS)
+    gg = cairo.LinearGradient(2.1 * PX, -(1.75 - T_R) * PX, 4.3 * PX, -(1.3 - T_R) * PX)
+    gg.add_color_stop_rgba(0, 0.05, 0.06, 0.08, a); gg.add_color_stop_rgba(0.55, 0.16, 0.18, 0.22, a)
+    gg.add_color_stop_rgba(1, 0.06, 0.07, 0.09, a)
+    ctx.set_source(gg); ctx.fill()
+    # panel seams: bed / rear door / front door
+    ctx.set_source_rgba(0.30, 0.30, 0.32, 0.9 * a); ctx.set_line_width(1.4)
+    for x, y0, y1 in ((2.05, 0.70, 1.60), (3.15, 0.70, 1.30), (4.18, 1.13, 1.30)):
+        ctx.move_to(x * PX, -(y0 - T_R) * PX); ctx.line_to(x * PX, -(y1 - T_R) * PX); ctx.stroke()
+    # light bars: white front, red rear
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    for col, width in (((1, 1, 1, 0.25 * a), 9), ((1, 1, 1, a), 3)):
+        ctx.set_source_rgba(*col); ctx.set_line_width(width)
+        ctx.move_to(5.50 * PX, -(1.09 - T_R) * PX); ctx.line_to(5.69 * PX, -(0.99 - T_R) * PX); ctx.stroke()
+    ctx.set_source_rgba(0.95, 0.12, 0.10, a); ctx.set_line_width(3)
+    ctx.move_to(0.01 * PX, -(1.13 - T_R) * PX); ctx.line_to(0.01 * PX, -(1.21 - T_R) * PX); ctx.stroke()
+    ctx.restore()
+    # tyres roll without slipping: angle = distance travelled / radius
+    draw_tyre(ctx, xr, yr, xr / r, a)
+    draw_tyre(ctx, xf, yf, xf / r, a)
+    ctx.pop_group_to_source()
+    edge = cairo.LinearGradient(X0, 0, X1, 0)
+    f = 110 / DW
+    edge.add_color_stop_rgba(0, 0, 0, 0, 0); edge.add_color_stop_rgba(f, 0, 0, 0, 1)
+    edge.add_color_stop_rgba(1 - f, 0, 0, 0, 1); edge.add_color_stop_rgba(1, 0, 0, 0, 0)
+    ctx.mask(edge)
+    ctx.restore()
 
 def draw_callout(ctx, text, px, py, tx, ty, a, color=(1, 1, 1), cam=None):
     if a <= 0:
@@ -650,7 +773,7 @@ def draw_checklist(ctx, t):
 # ---------------------------------------------------------------- comparison
 def mini_section(ctx, t, px, py, s, extra, t0):
     st = state(12)
-    st.update(dict(diag=1, labels=0, focus=None, wheel=None, sun=0, rain=0, thermo=0))
+    st.update(dict(diag=1, labels=0, focus=None, truck=None, sun=0, rain=0, thermo=0))
     st.update(extra)
     if extra.get("excavate"):
         st["excavate"] = ease(prog(t, t0 + 0.4, t0 + 1.6))
@@ -815,8 +938,8 @@ def camera(t):
 def state(t):
     st = dict(diag=0, b_sub=0, b_base=0, b_bind=0, b_surf=0, labels=0, focus=None,
               crack=0, cw=3, water=0, wet=0, ice=0, voids=0, mud=0, pump=0, sink=0, heave=0,
-              gator=0, pothole=0, fill=0, sun=0, rain=0, film=0, thermo=0, temp=1, wheel=None,
-              wheel_a=0, excavate=0, bounce=0)
+              gator=0, pothole=0, fill=0, sun=0, rain=0, film=0, thermo=0, temp=1, truck=None,
+              excavate=0, bounce=0)
     st["diag"] = window(t, 5.0, 75.6, 0.6, 0.7) + window(t, 85.6, 99.6, 0.7, 0.6)
     if t < 80:
         st["b_sub"] = prog(t, 6.0, 7.0)
@@ -831,9 +954,9 @@ def state(t):
         st["cw"] = 2 + 3 * prog(t, 16.8, 24.5)
         if 15.5 <= t < 25:
             st["focus"] = "surf" if t < 20.6 else "bind"
-        if 17.5 <= t < 21:
-            st["wheel"] = X0 - 80 + (DW + 160) * prog(t, 17.5, 21)
-            st["wheel_a"] = 1
+        span = DW + 6.2 * PX
+        if 17.3 <= t < 21.2:
+            st["truck"] = X0 - 3.1 * PX + span * prog(t, 17.3, 21.2)
         st["rain"] = window(t, 25.0, 36.5, 0.6, 0.8)
         st["film"] = ease(prog(t, 25.8, 27.5)) * (1 - ease(prog(t, 35.5, 36.5)))
         st["water"] = (L_BASE - L_SURF) * ease(prog(t, 26.5, 30.5))
@@ -867,10 +990,9 @@ def state(t):
         st["pothole"] = ease(prog(t, 72.6, 74.2))
         if 56 <= t < 76:
             st["focus"] = "base" if t < 61 else "sub" if t < 66 else None
-        if 65.2 <= t < 73.5:
-            ph = ((t - 65.2) / 2.6) % 1
-            st["wheel"] = X0 - 80 + (DW + 160) * ph
-            st["wheel_a"] = min(1, math.sin(ph * math.pi) * 4)
+        if 65.2 <= t < 72.5:
+            ph = ((t - 65.2) / ((72.5 - 65.2) / 3)) % 1
+            st["truck"] = X0 - 3.1 * PX + span * ph
         if t >= 70:
             st["rain"] = 0.6 * window(t, 72.5, 75.6, 0.5, 0.6)
     else:
