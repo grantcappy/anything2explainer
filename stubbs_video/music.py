@@ -1,12 +1,13 @@
-"""Original background track synthesized from scratch (no samples) -> assets/music.wav.
+"""Original background track synthesized from scratch (no samples) -> assets/music_<FORMAT>.wav.
 Steady, confident corporate-style bed: pads + pluck arpeggio + sub bass + soft drums."""
 import os
 import numpy as np
 from scipy.signal import butter, sosfilt
 from scipy.io import wavfile
+from timemap import FORMAT, duration, story_time
 
 SR = 44100
-DUR = 106.0
+DUR = duration()
 BPM = 92
 beat = 60 / BPM
 bar = 4 * beat
@@ -104,9 +105,12 @@ drums_hp = hp(drums, 30)
 def ramp(a, b, x):
     return np.clip((x - a) / max(b - a, 1e-6), 0, 1)
 
-drum_gain = ramp(13.5, 15.5, t) * (1 - 0.6 * ramp(75, 76.5, t) * (1 - ramp(85, 87, t))) * (1 - ramp(98.5, 100.5, t))
-arp_gain = 0.4 + 0.6 * ramp(4.5, 6, t)
-bass_gain = ramp(5, 7, t) * (1 - 0.5 * ramp(99, 101, t))
+story = np.array([story_time(x) for x in t[::441]])
+story = np.interp(t, t[::441], story)
+
+drum_gain = ramp(13.5, 15.5, story) * (1 - 0.6 * ramp(75, 76.5, story) * (1 - ramp(85, 87, story))) * (1 - ramp(98.5, 100.5, story))
+arp_gain = 0.4 + 0.6 * ramp(4.5, 6, story)
+bass_gain = ramp(5, 7, story) * (1 - 0.5 * ramp(99, 101, story))
 
 mix = pad * 1.0 + arp * arp_gain + bass * bass_gain + drums_hp * drum_gain * 0.8
 mix *= np.clip(t / 1.5, 0, 1) * np.clip((DUR - t) / 4.0, 0, 1)
@@ -116,6 +120,6 @@ right = mix + 0.15 * np.roll(pad, int(0.017 * SR))
 st = np.stack([left, right], 1)
 st /= np.abs(st).max() / 0.85
 os.makedirs(os.path.join(os.path.dirname(__file__), "assets"), exist_ok=True)
-wavfile.write(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music.wav"), SR,
+wavfile.write(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", f"music_{FORMAT}.wav"), SR,
               (st * 32767).astype(np.int16))
 print("ok")
