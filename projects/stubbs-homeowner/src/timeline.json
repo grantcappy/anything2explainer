@@ -1,0 +1,54 @@
+{
+ "fps": 30,
+ "total": 734,
+ "lines": [
+  {
+   "id": "S0",
+   "text": "Hiring Stubbs Asphalt is simple.",
+   "from": 12,
+   "dur": 59
+  },
+  {
+   "id": "S1",
+   "text": "Reach out online, or call, text, or leave a voicemail.",
+   "from": 80,
+   "dur": 98
+  },
+  {
+   "id": "S2",
+   "text": "Your asphalt specialist calls to schedule a site visit.",
+   "from": 187,
+   "dur": 92
+  },
+  {
+   "id": "S3",
+   "text": "We meet on site to walk through your project.",
+   "from": 288,
+   "dur": 68
+  },
+  {
+   "id": "S4",
+   "text": "Get a price on the spot, or within a day or two.",
+   "from": 365,
+   "dur": 81
+  },
+  {
+   "id": "S5",
+   "text": "Approve the job, and you're on the schedule.",
+   "from": 455,
+   "dur": 65
+  },
+  {
+   "id": "S6",
+   "text": "We show up and get the job done.",
+   "from": 529,
+   "dur": 53
+  },
+  {
+   "id": "S7",
+   "text": "One point of contact, start to finish.",
+   "from": 591,
+   "dur": 68
+  }
+ ]
+}
